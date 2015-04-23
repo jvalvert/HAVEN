@@ -1,0 +1,13 @@
+
+set @BIDS= '1.9122;0.1323|1.9999;0.0001|2.001;12.44456|0.22222;1.22223|';
+
+set @LENGTH_BIDS=53;
+SET @LAST_POS=0;
+SET @POS=1;
+	
+select locate('|',@BIDS,@POS) INTO @LAST_POS;
+select length(@BIDS) into @LENGTH_BIDS;
+
+select substring(@BIDS,@POS,@LAST_POS-@POS);
+
+SELECT @LAST_POS,@LENGTH_BIDS;
