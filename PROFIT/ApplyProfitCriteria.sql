@@ -1,12 +1,19 @@
-DELIMITER $$
-CREATE DEFINER=`cambi`@`%` PROCEDURE `ApplyProfitCriteria`(p_criteria varchar(25))
+CREATE DEFINER=`cambi`@`%` PROCEDURE `ApplyProfitCriteria`(p_criteria varchar(25)
+ ,p_arbitrage_diff_tolerance INT
+)
 BEGIN
 DECLARE done INT DEFAULT FALSE;
 DECLARE preset_maker_btc decimal(12,5);
+DECLARE preset_taker_btc decimal(12,5);
+DECLARE preset_maker_fiat decimal(12,5);
+DECLARE preset_taker_fiat decimal(12,5);
 DECLARE preset_btc_maker_diff decimal(12,5);
 DECLARE preset_t INT;
 
 DECLARE current_maker_btc decimal(12,5);
+DECLARE current_taker_btc decimal(12,5);
+DECLARE current_maker_fiat decimal(12,5);
+DECLARE current_taker_fiat decimal(12,5);
 DECLARE current_btc_maker_diff decimal(12,5);
 DECLARE current_t INT;
 
@@ -18,7 +25,9 @@ DECLARE CONTROL_T INT; -- controls the T position on main loop
 DECLARE LAST_T_PROFIT INT DEFAULT 0; -- Last T with Profit
 
 
-DECLARE BP CURSOR FOR select t,maker_btc,btc_maker_d from balance_profit ;
+DECLARE BP CURSOR FOR
+select t,maker_btc,btc_maker_d,maker_fiat,taker_btc,taker_fiat
+from balance_profit;
 
 
 
@@ -37,7 +46,7 @@ if (p_criteria='GINO') THEN -- using gino´s criteria
     OPEN BP;
 		-- get presets
 			preset_loop: LOOP
-			   FETCH BP into  preset_t,preset_maker_btc,preset_btc_maker_diff;
+			   FETCH BP into  preset_t,preset_maker_btc,preset_btc_maker_diff,preset_maker_fiat,preset_taker_btc,preset_taker_fiat;
                IF (preset_t>=CONTROL_T+1 or done) then
                    LEAVE preset_loop;
 			   END IF;
@@ -46,24 +55,38 @@ if (p_criteria='GINO') THEN -- using gino´s criteria
 
 		iterate_bp: LOOP
 		-- get the next balance
-		FETCH BP into  current_t,current_maker_btc,current_btc_maker_diff;
+		FETCH BP into  current_t,current_maker_btc,current_btc_maker_diff,current_maker_fiat,current_taker_btc,current_taker_fiat;
 				IF (done) THEN
 					LEAVE iterate_bp;
 				END IF;
 			-- get the diff between the current taker btc balance and preset balance
 			SET btc_maker_diff = current_maker_btc - preset_maker_btc;
 
-				IF abs(abs(btc_maker_diff) - abs(preset_btc_maker_diff)) <=1 -- this ONE is  the difference tolerance between the differences between preset maker btc and current maker btc
+				IF abs(abs(btc_maker_diff) - abs(preset_btc_maker_diff)) <=  p_arbitrage_diff_tolerance -- this ONE is  the difference tolerance between the differences between preset maker btc and current maker btc
 					and  (
 							(preset_btc_maker_diff > 0 and btc_maker_diff < 0) or
 							(preset_btc_maker_diff < 0 and btc_maker_diff > 0)
 							)
 				THEN -- if match criteria
+                -- RECALCULATE PREMIUM PRICE MAKER TAKER AND PROFIT FOR MAKER AND TAKER FOR CURRENT T
+                    UPDATE balance_profit
+                      SET premiumP_maker = truncate(abs(maker_fiat-preset_maker_fiat)/ abs(maker_BTC-preset_maker_btc),5),
+                          premiumP_taker = truncate(abs(taker_fiat-preset_taker_fiat)/ abs(taker_BTC-preset_taker_btc),5),
+                          PROFIT_MAKER   = truncate( IF(maker_fiat-preset_maker_fiat < 0,
+                                            -- ---------------------------PREMIUM PRICE--------------------------  * ---------COIN DIFERENTIAL-----------
+                                            (abs(maker_fiat-preset_maker_fiat)/abs(maker_BTC-preset_maker_btc)) * abs(maker_BTC-preset_maker_btc) * - 1,
+                                            (abs(maker_fiat-preset_maker_fiat)/abs(maker_BTC-preset_maker_btc)) * abs(maker_BTC-preset_maker_btc)),5) ,
+                                -- Calculate the new profit for Taker, the result is NOT converted to any currency
+                          PROFIT_TAKER   =  truncate( IF(taker_fiat-preset_taker_fiat < 0,
+                                            (abs(taker_fiat-preset_taker_fiat)/abs(taker_BTC-preset_taker_btc)) * abs(taker_BTC-preset_taker_btc) * - 1,
+                                            (abs(taker_fiat-preset_taker_fiat)/abs(taker_BTC-preset_taker_btc)) * abs(taker_BTC-preset_taker_btc)),5)
+                      WHERE
+                          T = current_t;
                   -- delete the previous balances that doesn´t contain profit
                   IF (LAST_T_PROFIT = 0)  THEN
                     DELETE FROM balance_profit WHERE T BETWEEN preset_t+1 AND current_t -1;
                   ELSE
-                    DELETE FROM balance_profit WHERE T BETWEEN LAST_T_PROFIT+1 AND current_t -1;
+                  DELETE FROM balance_profit WHERE T BETWEEN LAST_T_PROFIT+1 AND current_t -1;
                   END IF;
 
                   -- save the preset used to get this profit balance
@@ -104,7 +127,10 @@ if (p_criteria='GINO') THEN -- using gino´s criteria
     -- delete all T below the last preset
     delete from balance_profit where T > LAST_T_PROFIT;
 
+
+
+
+
 END IF; -- CRITERIA
 
-END$$
-DELIMITER ;
+END

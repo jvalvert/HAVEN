@@ -1,4 +1,3 @@
-DELIMITER $$
 CREATE DEFINER=`cambi`@`%` PROCEDURE `CreateBalanceSnapshot`(
 p_core_id int,
 p_from_date datetime(6),
@@ -18,7 +17,7 @@ set @p_core_id=p_core_id;
 -- TAKER BALANCE TEMPORARY TABLE
 SET @rowid = 0;
 -- get the taker balances
-CREATE TEMPORARY TABLE taker_balance  (t INTEGER NOT NULL , PRIMARY KEY (T),INDEX(t) ) ROW_FORMAT=Fixed ENGINE=MyISAM(
+CREATE TEMPORARY TABLE taker_balance  (t INTEGER NOT NULL , PRIMARY KEY (T),INDEX(t) ) ROW_FORMAT=Fixed ENGINE=MEMORY(
 select  (@rowid:=@rowid+1) t,date_format(tickDate,'%Y-%m-%d %H:%i:%s')tickDate,'TAKER' role,exchange_id,fiat_currency_id,fiat_amount FIAT,crypto_currency_id,crypto_amount BTC,1/exchange_rate price
 from CAMFUNDS.exchange_balance eb
 where 
@@ -38,7 +37,7 @@ order by tickDate asc
 
 SET @rowid = 0;
 -- get the taker balances
-CREATE TEMPORARY TABLE maker_balance  (t INTEGER NOT NULL  , PRIMARY KEY (T),INDEX(t) ) ROW_FORMAT=Fixed ENGINE=MyISAM (
+CREATE TEMPORARY TABLE maker_balance  (t INTEGER NOT NULL  , PRIMARY KEY (T),INDEX(t) ) ROW_FORMAT=Fixed ENGINE=MEMORY (
 select  (@rowid:=@rowid+1) t,date_format(tickDate,'%Y-%m-%d %H:%i:%s') tickDate,'MAKER' role,exchange_id,fiat_currency_id,fiat_amount FIAT,crypto_currency_id,crypto_amount BTC,1/exchange_rate price
 from CAMFUNDS.exchange_balance eb
 where 
@@ -61,7 +60,7 @@ ADD INDEX `idx_Maker_balance_date` (`tickDate` ASC);
 DROP TEMPORARY TABLE IF EXISTS balance_snapshot;
 
 
-create temporary table balance_snapshot 
+create temporary table balance_snapshot ENGINE=MEMORY 
 (select  t.t T,m.t MT,t.tickDate  taker_tick, m.tickDate maker_tick,
        t.exchange_id taker_exchange_id, t.fiat_currency_id taker_currency_id, t.FIAT taker_fiat,t.crypto_currency_id taker_crypto_currency_id, t.BTC taker_BTC,t.price taker_price,
        m.exchange_id maker_exchange_id, m.fiat_currency_id maker_currency_id, m.FIAT maker_fiat,m.crypto_currency_id maker_crypto_currency_id, m.BTC maker_BTC,m.price maker_price
@@ -75,5 +74,4 @@ order by t.t  );
 ALTER TABLE balance_snapshot 
 ADD INDEX `idx_T` (`T` ASC);
 
-END$$
-DELIMITER ;
+END
